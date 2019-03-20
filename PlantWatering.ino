@@ -1,29 +1,36 @@
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+#include <NewPing.h>
+#include <MedianFilter.h>
+#include <Wire.h>
 #include <FirebaseArduino.h>
-#include <ArduinoJson.h>
 #include <string>
 
-#define WIFI_SSID "SHEENA" //Wifi SSID
-#define WIFI_PASSWORD "HYDROCORTISONE2005" //Wifi password
+#define WIFI_SSID "NETGEAR55" //Wifi SSID
+#define WIFI_PASSWORD "mypldtNET540" //Wifi password
 
-#define FIREBASE_HOST "pwsystem-6e02c.firebaseio.com"
-#define FIREBASE_AUTH "75rzCPuqnO0hiRjwAIcTf6Numsdc1Kn7ghIXftfn"
+#define FIREBASE_HOST "plantwatering-ac571.firebaseio.com"
+#define FIREBASE_AUTH "2Ngq1iLJSCUBDsPGBtdsTkVIHPt1nbDVbOEMG1ic"
 
-#define pump 14 //d5
-#define soilMoisture 15 //D8
-#define waterSensor A0 // Analog pin 0
+#define TRIGGER_PIN  14 //D5  // Arduino pin tied to trigger pin on the ultrasonic sensor.
+#define ECHO_PIN     12 // D6 // Arduino pin tied to echo pin on the ultrasonic sensor.
+#define MAX_DISTANCE 450 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
+#define pump 0 //D4
+#define soilMoisture 13 //D7
 
 WiFiClient client;
-int soilOutput = 0;
 const long utcOffsetInSeconds = 28800;
 
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "ntp.pagasa.dost.gov.ph", utcOffsetInSeconds);
+
+//Define ultrasonic requirements
+NewPing sonar (TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);//NewPing setup of pins and max distance
+MedianFilter filter(31,0);
 
 void setup() {
   Serial.begin(115200);
@@ -40,7 +47,7 @@ void loop() {
   pumpPower();
   triggerSched();
   sendSoilData();
-  waterValue();
+ // sendUltraSonicData();
   
 }
 
@@ -70,18 +77,6 @@ void pumpOff(){
   Firebase.setString("Pump/pumpState", "0");
 }
 
-void waterValue() {
-   int waterLevel = analogRead(waterSensor);
-   delay(1);
-   int waterPercent = (waterLevel/100)*100;
-   if(waterPercent == 0){
-    Firebase.setString("Water/waterValue", "EMPTY");
-   }else{
-    Firebase.setString("Water/waterValue","FILLED");
-   }
-  
-}
-
 void blinkLed() {
   digitalWrite(2, HIGH);
   delay(1000);
@@ -93,16 +88,24 @@ void sendSoilData() {
   if (digitalRead(soilMoisture) == HIGH) {
     Serial.println("DRY");
      Firebase.setString("Soil/soilValue", "DRY");
-    delay(2000);
+     if(Firebase.failed()){
+        Serial.println("Soil insert dry failed");
+     }else{
+        Serial.println("Dry soil inserted");
+     }
+    delay(1000);
   }
   //Firebase.setInt();
-  else if (digitalRead(soilMoisture) == LOW) {
+  else {
     Serial.println("WET");
     Firebase.setString("Soil/soilValue", "WET");
-    delay(2000);
+     if(Firebase.failed()){
+        Serial.println("Soil insert dry failed");
+     }else{
+        Serial.println("Dry soil inserted");
+     }
+    delay(1000);
   }
-  else
-    Serial.println("Error");
 }
 
 void initializeWifi() {
@@ -123,7 +126,6 @@ void initializePins() {
   pinMode(pump, OUTPUT);
   pinMode(2, OUTPUT);
   pinMode(soilMoisture, INPUT);
-  pinMode(waterSensor, INPUT);
 }
 
 void triggerSched(){
@@ -171,14 +173,17 @@ void mondaySched(){
     m[m1] = monday.substring(monday.length()-5, monday.length());
     for (int i = 0; i <= m1; i++) {
       if (curTime == m[i]) {
-        pumpOn();
-      }else{
-      pumpOff();
+        if(digitalRead(soilMoisture) == HIGH){
+          pumpOn();
+        }
+        else{
+            pumpOff();    
+       }
       }
     }
-   }
-    
-}
+  }
+} 
+
 
 void tuesdaySched(){
     FirebaseObject obj = Firebase.get("MainSchedule");
@@ -198,13 +203,14 @@ void tuesdaySched(){
     t[t1] = tuesday.substring(tuesday.length()-5, tuesday.length());
     for (int i = 0; i <= t1; i++) {
       if (curTime == t[i]) {
-        pumpOn();
-      }else{
-       pumpOff();
+        if(digitalRead(soilMoisture) == HIGH){
+            pumpOn();
+        }else{
+            pumpOff();    
+        }
       }
     }
-   }
-   
+  }
 }
 
 void wednesdaySched(){ 
@@ -225,15 +231,15 @@ void wednesdaySched(){
       w[w1] = wednesday.substring(wednesday.length()-5, wednesday.length());
       for (int i = 0; i <= w1; i++) {
         if (curTime == w[i]) {
-          pumpOn();
+          if(digitalRead(soilMoisture) == HIGH){
+             pumpOn();
         }else{
-          pumpOff();
+              pumpOff();    
         }
       }
-    }
-    
+    } 
+  }
 }
-
 void thursdaySched(){
      FirebaseObject obj = Firebase.get("MainSchedule");
     String currentTime = timeClient.getFormattedTime();
@@ -252,16 +258,15 @@ void thursdaySched(){
     th[th1] = thursday.substring(thursday.length()-5, thursday.length());
     for (int i = 0; i <= th1; i++) {
       if (curTime == th[i]) {
-        pumpOn();
-        Serial.println(th[i]);
-      }else{
-      pumpOff();
-       }
-     } 
-   }
-   
+         if(digitalRead(soilMoisture) == HIGH){
+            pumpOn();
+        }else{
+            pumpOff();    
+        }
+      } 
+    }
+  }
 }
-
 void fridaySched(){
      FirebaseObject obj = Firebase.get("MainSchedule");
     String currentTime = timeClient.getFormattedTime();
@@ -280,13 +285,14 @@ void fridaySched(){
     f[f1] = friday.substring(friday.length()-5, friday.length());
      for (int i = 0; i <= f1; i++) {
       if (curTime == f[i]) {
-        pumpOn();
-      }else{
-      pumpOff();
-       }
-     }
-   }
-    
+        if(digitalRead(soilMoisture) == HIGH){
+            pumpOn();
+        }else{
+            pumpOff();    
+        }
+      }
+    }  
+  }
 }
 
 void saturdaySched(){
@@ -307,13 +313,14 @@ void saturdaySched(){
       s[s1] = saturday.substring(saturday.length()-5, saturday.length());
       for (int i = 0; i <= s1; i++) {
         if (curTime == s[i]) {
-          pumpOn();
-        }else{
-        pumpOff();
+          if(digitalRead(soilMoisture) == HIGH){
+              pumpOn();
+        } else{
+              pumpOff();    
         }
       }
-    }
-    
+    }  
+  }
 }
 
 void sundaySched(){
@@ -334,11 +341,38 @@ void sundaySched(){
       su[su1] = sunday.substring(sunday.length()-5, sunday.length());
       for (int i = 0; i <= su1; i++) {
         if (curTime == su[i]) {
-          pumpOn();
+           if(digitalRead(soilMoisture) == HIGH){
+            pumpOn();
         }else{
-        pumpOff();
+            pumpOff();    
         }
       }
     }
-   
+  }
+}
+
+void sendUltraSonicData(){
+  int convert = 0;
+  delay(50);
+  // put your main code here, to run repeatedly:
+  unsigned int o,uS = sonar.ping(); // Send ping, get ping time in miroseconds(uS)
+
+  for(int i = 0; i<=5;i++){
+    filter.in(uS);
+    o = filter.out();
+    convert = o / US_ROUNDTRIP_CM;\
+    Serial.print("Ping: ");
+    Serial.print(convert); //Convert ping time to distance in cm and print result(0 == outside set distance range)
+    Serial.println("cm");
+  }
+  
+  if(convert > 22){
+    Firebase.setString("Water/waterValue", "LOW");
+    Firebase.success();
+    Serial.println("LOW");
+  }else {
+    Firebase.setString("Water/waterValue", "FILLED");
+    Firebase.success();
+    Serial.println("FILLED");
+  }
 }
